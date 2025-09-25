@@ -278,282 +278,338 @@ def calculate_text_sentiment(text):
 
 # Main app
 def main():
-    st.markdown('<h1 class="main-header">🔬 CORD-19 Comprehensive Research Explorer</h1>', unsafe_allow_html=True)
-    st.markdown("### Advanced Analytics for COVID-19 Research Publications")
-    
-    # Load data
-    with st.spinner("Loading comprehensive research data..."):
-        data_result = load_data()
-    
-    if data_result[0] is None:
-        st.error("❌ Failed to load data. Please check your data sources.")
-        return
-    
-    df, dataset_info = data_result
-    st.success(f"✅ Loaded {len(df):,} research papers from {dataset_info}")
-    
-    # Manual upload option
-    with st.expander("📁 Upload Custom Dataset"):
-        uploaded_file = st.file_uploader("Or upload your own CSV file", type=['csv'])
-        if uploaded_file is not None:
-            try:
-                custom_df = pd.read_csv(uploaded_file)
-                df = process_data(custom_df)
-                dataset_info = "Uploaded File"
-                st.success("✅ Using uploaded file!")
-            except Exception as e:
-                st.error(f"Error reading uploaded file: {e}")
-    
-    # Sidebar controls
-    st.sidebar.header("🎛️ Advanced Controls")
-    st.sidebar.info(f"**Source:** {dataset_info}")
-    st.sidebar.info(f"**Total Papers:** {len(df):,}")
-    
-    # Enhanced filters
-    years = sorted(df['publication_year'].unique())
-    year_range = st.sidebar.slider(
-        "Publication Year Range",
-        min_value=int(min(years)),
-        max_value=int(max(years)),
-        value=(int(min(years)), int(max(years)))
-    )
-    
-    filtered_df = df[
-        (df['publication_year'] >= year_range[0]) & 
-        (df['publication_year'] <= year_range[1])
-    ]
-    
-    # Additional filters
-    col1, col2, col3 = st.sidebar.columns(3)
-    
-    with col1:
-        min_citations = st.number_input("Min Citations", value=0)
-        filtered_df = filtered_df[filtered_df['citation_count'] >= min_citations]
-    
-    with col2:
-        min_authors = st.number_input("Min Authors", value=1, min_value=1)
-        filtered_df = filtered_df[filtered_df['author_count'] >= min_authors]
-    
-    with col3:
-        with_abstract = st.checkbox("With Abstract", value=True)
-        if with_abstract:
-            filtered_df = filtered_df[filtered_df['has_abstract']]
-    
-    # Journal filter
-    journals = filtered_df['journal'].value_counts().index.tolist()
-    selected_journals = st.sidebar.multiselect("Filter Journals", journals, default=[])
-    if selected_journals:
-        filtered_df = filtered_df[filtered_df['journal'].isin(selected_journals)]
-    
-    # Enhanced metrics
-    st.subheader("📊 Research Overview Metrics")
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
-    
-    with col1:
-        st.metric("Total Papers", f"{len(filtered_df):,}")
-    with col2:
-        st.metric("Unique Journals", f"{filtered_df['journal'].nunique():,}")
-    with col3:
-        avg_citations = filtered_df['citation_count'].mean()
-        st.metric("Avg Citations", f"{avg_citations:.1f}")
-    with col4:
-        st.metric("Avg Authors", f"{filtered_df['author_count'].mean():.1f}")
-    with col5:
-        papers_with_abstracts = filtered_df['has_abstract'].sum()
-        st.metric("With Abstracts", f"{papers_with_abstracts:,}")
-    with col6:
-        st.metric("Time Span", f"{year_range[0]}-{year_range[1]}")
-    
-    # Main tabs with comprehensive analysis
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "📈 Trends", "📚 Journals", "👥 Authors", "🌍 Geographic", "📖 Content", "📋 Data"
-    ])
-    
-    with tab1:
-        st.subheader("Publication Trends and Impact")
-        col1, col2 = st.columns(2)
+    try:
+        st.markdown('<h1 class="main-header">🔬 CORD-19 Comprehensive Research Explorer</h1>', unsafe_allow_html=True)
+        st.markdown("### Advanced Analytics for COVID-19 Research Publications")
+        
+        # Load data
+        with st.spinner("Loading comprehensive research data..."):
+            data_result = load_data()
+        
+        if data_result[0] is None:
+            st.error("❌ Failed to load data. Please check your data sources.")
+            return
+        
+        df, dataset_info = data_result
+        st.success(f"✅ Loaded {len(df):,} research papers from {dataset_info}")
+        
+        # Debug info
+        st.sidebar.info(f"**Data Shape:** {df.shape}")
+        st.sidebar.info(f"**Date Range:** {df['publish_time'].min()} to {df['publish_time'].max()}")
+        
+        # Manual upload option
+        with st.expander("📁 Upload Custom Dataset"):
+            uploaded_file = st.file_uploader("Or upload your own CSV file", type=['csv'])
+            if uploaded_file is not None:
+                try:
+                    custom_df = pd.read_csv(uploaded_file)
+                    df = process_data(custom_df)
+                    dataset_info = "Uploaded File"
+                    st.success("✅ Using uploaded file!")
+                except Exception as e:
+                    st.error(f"Error reading uploaded file: {e}")
+        
+        # Sidebar controls
+        st.sidebar.header("🎛️ Advanced Controls")
+        st.sidebar.info(f"**Source:** {dataset_info}")
+        st.sidebar.info(f"**Total Papers:** {len(df):,}")
+        
+        # Enhanced filters
+        years = sorted(df['publication_year'].unique())
+        year_range = st.sidebar.slider(
+            "Publication Year Range",
+            min_value=int(min(years)),
+            max_value=int(max(years)),
+            value=(int(min(years)), int(max(years)))
+        )
+        
+        filtered_df = df[
+            (df['publication_year'] >= year_range[0]) & 
+            (df['publication_year'] <= year_range[1])
+        ]
+        
+        # Additional filters
+        col1, col2, col3 = st.sidebar.columns(3)
         
         with col1:
-            # Yearly publications with citations
-            yearly_data = filtered_df.groupby('publication_year').agg({
-                'cord_uid': 'count',
-                'citation_count': 'mean'
-            }).reset_index()
-            
-            fig = go.Figure()
-            fig.add_trace(go.Bar(
-                x=yearly_data['publication_year'],
-                y=yearly_data['cord_uid'],
-                name='Publications',
-                marker_color='blue'
-            ))
-            fig.add_trace(go.Scatter(
-                x=yearly_data['publication_year'],
-                y=yearly_data['citation_count'],
-                name='Avg Citations',
-                yaxis='y2',
-                line=dict(color='red', width=3)
-            ))
-            
-            fig.update_layout(
-                title='Publications and Citation Impact Over Time',
-                xaxis_title='Year',
-                yaxis_title='Number of Publications',
-                yaxis2=dict(title='Average Citations', overlaying='y', side='right'),
-                height=400
-            )
-            st.plotly_chart(fig, width='stretch')
+            min_citations = st.number_input("Min Citations", value=0)
+            filtered_df = filtered_df[filtered_df['citation_count'] >= min_citations]
         
         with col2:
-            # Monthly trends
-            monthly_data = filtered_df.groupby([
-                filtered_df['publish_time'].dt.year,
-                filtered_df['publish_time'].dt.month
-            ]).size().reset_index(name='count')
-            monthly_data['date'] = pd.to_datetime(
-                monthly_data['publish_time'].astype(str) + '-' + monthly_data['publish_time'].astype(str)
-            )
-            
-            fig = px.line(monthly_data, x='date', y='count', 
-                         title='Monthly Publication Trends',
-                         height=400)
-            st.plotly_chart(fig, width='stretch')
-    
-    with tab2:
-        st.subheader("Journal Analysis")
-        col1, col2 = st.columns(2)
+            min_authors = st.number_input("Min Authors", value=1, min_value=1)
+            filtered_df = filtered_df[filtered_df['author_count'] >= min_authors]
         
-        with col1:
-            # Top journals by publication count
-            top_journals = filtered_df['journal'].value_counts().head(15)
-            fig = px.bar(top_journals, x=top_journals.values, y=top_journals.index,
-                        orientation='h', title='Top 15 Journals by Publication Count',
-                        height=500)
-            st.plotly_chart(fig, width='stretch')
-        
-        with col2:
-            # Journal impact (citations)
-            journal_impact = filtered_df.groupby('journal').agg({
-                'citation_count': 'mean',
-                'cord_uid': 'count'
-            }).nlargest(15, 'cord_uid')
-            
-            fig = px.scatter(journal_impact, x='cord_uid', y='citation_count',
-                           size='citation_count', hover_name=journal_impact.index,
-                           title='Journal Impact: Publications vs Citations',
-                           height=500)
-            st.plotly_chart(fig, width='stretch')
-    
-    with tab3:
-        st.subheader("Author and Collaboration Analysis")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # Author count distribution
-            fig = px.histogram(filtered_df, x='author_count', 
-                             title='Distribution of Authors per Paper',
-                             nbins=20, height=400)
-            st.plotly_chart(fig, width='stretch')
-        
-        with col2:
-            # Collaboration trends over time
-            collaboration_trends = filtered_df.groupby('publication_year').agg({
-                'author_count': 'mean',
-                'has_multiple_authors': 'mean'
-            }).reset_index()
-            
-            fig = px.line(collaboration_trends, x='publication_year', 
-                         y=['author_count', 'has_multiple_authors'],
-                         title='Collaboration Trends Over Time',
-                         height=400)
-            st.plotly_chart(fig, width='stretch')
-    
-    with tab4:
-        st.subheader("Geographic and Source Analysis")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # Country distribution
-            country_data = filtered_df['country'].value_counts().head(15)
-            fig = px.pie(country_data, values=country_data.values, names=country_data.index,
-                        title='Top 15 Countries by Publication Count',
-                        height=500)
-            st.plotly_chart(fig, width='stretch')
-        
-        with col2:
-            # Source distribution over time
-            source_trends = pd.crosstab(filtered_df['publication_year'], filtered_df['source'])
-            fig = px.area(source_trends, title='Publication Sources Over Time',
-                         height=500)
-            st.plotly_chart(fig, width='stretch')
-    
-    with tab5:
-        st.subheader("Content Analysis")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # Word cloud of titles
-            text = ' '.join(filtered_df['title'].dropna().astype(str))
-            if text:
-                wordcloud = WordCloud(width=600, height=300, background_color='white').generate(text)
-                fig, ax = plt.subplots(figsize=(10, 5))
-                ax.imshow(wordcloud, interpolation='bilinear')
-                ax.axis('off')
-                ax.set_title('Common Words in Research Titles', fontsize=16)
-                st.pyplot(fig)
-        
-        with col2:
-            # Abstract length vs citations
-            fig = px.scatter(filtered_df, x='abstract_word_count', y='citation_count',
-                           trendline='lowess', title='Abstract Length vs Citation Impact',
-                           height=400)
-            st.plotly_chart(fig, width='stretch')
-        
-        # Study type analysis
-        study_type_data = filtered_df['study_type'].value_counts()
-        fig = px.bar(study_type_data, x=study_type_data.index, y=study_type_data.values,
-                    title='Distribution of Research Types',
-                    height=400)
-        st.plotly_chart(fig, width='stretch')
-    
-    with tab6:
-        st.subheader("Raw Data and Export")
-        
-        # Data summary
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Filtered Papers", f"{len(filtered_df):,}")
-        with col2:
-            st.metric("Columns", f"{len(filtered_df.columns):,}")
         with col3:
-            st.metric("Data Size", f"{filtered_df.memory_usage(deep=True).sum() / 1024 / 1024:.1f} MB")
+            with_abstract = st.checkbox("With Abstract", value=True)
+            if with_abstract:
+                filtered_df = filtered_df[filtered_df['has_abstract']]
         
-        # Data preview
-        st.dataframe(filtered_df.head(100), width='stretch', height=400)
+        # Journal filter
+        journals = filtered_df['journal'].value_counts().index.tolist()
+        selected_journals = st.sidebar.multiselect("Filter Journals", journals, default=[])
+        if selected_journals:
+            filtered_df = filtered_df[filtered_df['journal'].isin(selected_journals)]
         
-        # Export options
-        col1, col2 = st.columns(2)
+        # Check if filtered data is empty
+        if filtered_df.empty:
+            st.warning("⚠️ No data matches your filters. Please adjust your criteria.")
+            return
+        
+        # Enhanced metrics
+        st.subheader("📊 Research Overview Metrics")
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
+        
         with col1:
-            csv = filtered_df.to_csv(index=False)
-            st.download_button(
-                label="📥 Download Filtered Data (CSV)",
-                data=csv,
-                file_name=f'cord19_analysis_{datetime.now().strftime("%Y%m%d_%H%M")}.csv',
-                mime='text/csv'
-            )
-        
+            st.metric("Total Papers", f"{len(filtered_df):,}")
         with col2:
-            # Summary statistics
-            with st.expander("📊 Dataset Summary Statistics"):
-                st.write(filtered_df.describe())
+            st.metric("Unique Journals", f"{filtered_df['journal'].nunique():,}")
+        with col3:
+            avg_citations = filtered_df['citation_count'].mean()
+            st.metric("Avg Citations", f"{avg_citations:.1f}")
+        with col4:
+            st.metric("Avg Authors", f"{filtered_df['author_count'].mean():.1f}")
+        with col5:
+            papers_with_abstracts = filtered_df['has_abstract'].sum()
+            st.metric("With Abstracts", f"{papers_with_abstracts:,}")
+        with col6:
+            st.metric("Time Span", f"{year_range[0]}-{year_range[1]}")
+        
+        # Main tabs with comprehensive analysis
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+            "📈 Trends", "📚 Journals", "👥 Authors", "🌍 Geographic", "📖 Content", "📋 Data"
+        ])
+        
+        with tab1:
+            st.subheader("Publication Trends and Impact")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                try:
+                    # Yearly publications with citations
+                    yearly_data = filtered_df.groupby('publication_year').agg({
+                        'cord_uid': 'count',
+                        'citation_count': 'mean'
+                    }).reset_index()
+                    
+                    fig = go.Figure()
+                    fig.add_trace(go.Bar(
+                        x=yearly_data['publication_year'],
+                        y=yearly_data['cord_uid'],
+                        name='Publications',
+                        marker_color='#1f77b4'
+                    ))
+                    fig.add_trace(go.Scatter(
+                        x=yearly_data['publication_year'],
+                        y=yearly_data['citation_count'],
+                        name='Avg Citations',
+                        yaxis='y2',
+                        line=dict(color='red', width=3)
+                    ))
+                    
+                    fig.update_layout(
+                        title='Publications and Citation Impact Over Time',
+                        xaxis_title='Year',
+                        yaxis_title='Number of Publications',
+                        yaxis2=dict(title='Average Citations', overlaying='y', side='right'),
+                        height=400
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                except Exception as e:
+                    st.error(f"Error creating yearly trends: {str(e)}")
+            
+            with col2:
+                try:
+                    # Monthly trends - FIXED VERSION
+                    if 'publish_time' in filtered_df.columns and not filtered_df.empty:
+                        monthly_data = filtered_df.copy()
+                        monthly_data['year'] = monthly_data['publish_time'].dt.year
+                        monthly_data['month'] = monthly_data['publish_time'].dt.month
+                        monthly_data['date'] = pd.to_datetime(
+                            monthly_data['year'].astype(str) + '-' + 
+                            monthly_data['month'].astype(str) + '-01'
+                        )
+                        monthly_trends = monthly_data.groupby('date').size().reset_index(name='count')
+                        
+                        fig = px.line(monthly_trends, x='date', y='count', 
+                                     title='Monthly Publication Trends',
+                                     height=400)
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No date data available for monthly trends")
+                except Exception as e:
+                    st.error(f"Error creating monthly trends: {str(e)}")
+        
+        with tab2:
+            st.subheader("Journal Analysis")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                try:
+                    # Top journals by publication count
+                    top_journals = filtered_df['journal'].value_counts().head(15)
+                    fig = px.bar(top_journals, x=top_journals.values, y=top_journals.index,
+                                orientation='h', title='Top 15 Journals by Publication Count',
+                                height=500)
+                    st.plotly_chart(fig, use_container_width=True)
+                except Exception as e:
+                    st.error(f"Error creating journal bar chart: {str(e)}")
+            
+            with col2:
+                try:
+                    # Journal impact (citations)
+                    journal_impact = filtered_df.groupby('journal').agg({
+                        'citation_count': 'mean',
+                        'cord_uid': 'count'
+                    }).nlargest(15, 'cord_uid')
+                    
+                    fig = px.scatter(journal_impact, x='cord_uid', y='citation_count',
+                                   size='citation_count', hover_name=journal_impact.index,
+                                   title='Journal Impact: Publications vs Citations',
+                                   height=500)
+                    st.plotly_chart(fig, use_container_width=True)
+                except Exception as e:
+                    st.error(f"Error creating journal scatter plot: {str(e)}")
+        
+        with tab3:
+            st.subheader("Author and Collaboration Analysis")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                try:
+                    # Author count distribution
+                    fig = px.histogram(filtered_df, x='author_count', 
+                                     title='Distribution of Authors per Paper',
+                                     nbins=20, height=400)
+                    st.plotly_chart(fig, use_container_width=True)
+                except Exception as e:
+                    st.error(f"Error creating author histogram: {str(e)}")
+            
+            with col2:
+                try:
+                    # Collaboration trends over time
+                    collaboration_trends = filtered_df.groupby('publication_year').agg({
+                        'author_count': 'mean',
+                        'has_multiple_authors': 'mean'
+                    }).reset_index()
+                    
+                    fig = px.line(collaboration_trends, x='publication_year', 
+                                 y=['author_count', 'has_multiple_authors'],
+                                 title='Collaboration Trends Over Time',
+                                 height=400)
+                    st.plotly_chart(fig, use_container_width=True)
+                except Exception as e:
+                    st.error(f"Error creating collaboration trends: {str(e)}")
+        
+        with tab4:
+            st.subheader("Geographic and Source Analysis")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                try:
+                    # Country distribution
+                    country_data = filtered_df['country'].value_counts().head(15)
+                    fig = px.pie(country_data, values=country_data.values, names=country_data.index,
+                                title='Top 15 Countries by Publication Count',
+                                height=500)
+                    st.plotly_chart(fig, use_container_width=True)
+                except Exception as e:
+                    st.error(f"Error creating country pie chart: {str(e)}")
+            
+            with col2:
+                try:
+                    # Source distribution over time
+                    source_trends = pd.crosstab(filtered_df['publication_year'], filtered_df['source'])
+                    fig = px.area(source_trends, title='Publication Sources Over Time',
+                                 height=500)
+                    st.plotly_chart(fig, use_container_width=True)
+                except Exception as e:
+                    st.error(f"Error creating source area chart: {str(e)}")
+        
+        with tab5:
+            st.subheader("Content Analysis")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                try:
+                    # Word cloud of titles
+                    text = ' '.join(filtered_df['title'].dropna().astype(str))
+                    if text.strip():
+                        wordcloud = WordCloud(width=600, height=300, background_color='white').generate(text)
+                        fig, ax = plt.subplots(figsize=(10, 5))
+                        ax.imshow(wordcloud, interpolation='bilinear')
+                        ax.axis('off')
+                        ax.set_title('Common Words in Research Titles', fontsize=16)
+                        st.pyplot(fig)
+                    else:
+                        st.info("No text data available for word cloud")
+                except Exception as e:
+                    st.error(f"Error creating word cloud: {str(e)}")
+            
+            with col2:
+                try:
+                    # Abstract length vs citations
+                    if not filtered_df.empty and 'abstract_word_count' in filtered_df.columns:
+                        fig = px.scatter(filtered_df, x='abstract_word_count', y='citation_count',
+                                       trendline='lowess', title='Abstract Length vs Citation Impact',
+                                       height=400)
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No abstract data available for analysis")
+                except Exception as e:
+                    st.error(f"Error creating abstract scatter plot: {str(e)}")
+            
+            try:
+                # Study type analysis
+                study_type_data = filtered_df['study_type'].value_counts()
+                fig = px.bar(study_type_data, x=study_type_data.index, y=study_type_data.values,
+                            title='Distribution of Research Types',
+                            height=400)
+                st.plotly_chart(fig, use_container_width=True)
+            except Exception as e:
+                st.error(f"Error creating study type bar chart: {str(e)}")
+        
+        with tab6:
+            st.subheader("Raw Data and Export")
+            
+            # Data summary
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Filtered Papers", f"{len(filtered_df):,}")
+            with col2:
+                st.metric("Columns", f"{len(filtered_df.columns):,}")
+            with col3:
+                st.metric("Data Size", f"{filtered_df.memory_usage(deep=True).sum() / 1024 / 1024:.1f} MB")
+            
+            # Data preview
+            st.dataframe(filtered_df.head(100), use_container_width=True)
+            
+            # Export options
+            col1, col2 = st.columns(2)
+            with col1:
+                csv = filtered_df.to_csv(index=False)
+                st.download_button(
+                    label="📥 Download Filtered Data (CSV)",
+                    data=csv,
+                    file_name=f'cord19_analysis_{datetime.now().strftime("%Y%m%d_%H%M")}.csv',
+                    mime='text/csv'
+                )
+            
+            with col2:
+                # Summary statistics
+                with st.expander("📊 Dataset Summary Statistics"):
+                    st.write(filtered_df.describe())
+        
+        # Footer
+        st.markdown("---")
+        st.markdown("""
+        **Advanced CORD-19 Research Explorer** • 
+        *Comprehensive analysis of COVID-19 research publications* • 
+        Data updated automatically from multiple sources
+        """)
     
-    # Footer
-    st.markdown("---")
-    st.markdown("""
-    **Advanced CORD-19 Research Explorer** • 
-    *Comprehensive analysis of COVID-19 research publications* • 
-    Data updated automatically from multiple sources
-    """)
+    except Exception as e:
+        st.error(f"Application error: {str(e)}")
+        st.info("Please check the data format and try refreshing the app.")
 
 if __name__ == "__main__":
     main()
