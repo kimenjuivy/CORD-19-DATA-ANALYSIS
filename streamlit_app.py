@@ -12,7 +12,6 @@ import requests
 import zipfile
 from io import BytesIO
 import warnings
-from textblob import TextBlob
 import re
 warnings.filterwarnings('ignore')
 
