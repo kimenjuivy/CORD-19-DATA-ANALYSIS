@@ -40,74 +40,139 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-@st.cache_data
+@st.cache_data(ttl=3600)
 def load_data():
-    """Load data with multiple fallback options"""
+    """Load data from GitHub release - PRODUCTION VERSION"""
     
-    full_data_path = 'raw_data/metadata_cleaned.csv'
-    sample_data_path = 'raw_data/metadata_sample.csv'
+    st.info("🌐 Loading dataset from GitHub release...")
     
-    # Try to load full dataset first
-    if os.path.exists(full_data_path):
-        try:
-            df = pd.read_csv(full_data_path)
-            st.success("📊 Using full dataset")
-            dataset_info = "Full Dataset"
-        except Exception as e:
-            st.error(f"Error loading full dataset: {e}")
-            return None, None
+    try:
+        # GitHub release URL
+        url = "https://github.com/kimenjuivy/CORD-19-DATA-ANALYSIS/releases/download/v1.0-data/dataset.zip"
+        
+        # Download the file
+        response = requests.get(url)
+        response.raise_for_status()
+        
+        # Extract zip file
+        with zipfile.ZipFile(BytesIO(response.content)) as zip_ref:
+            # Get list of files in zip
+            file_list = zip_ref.namelist()
+            st.info(f"Files in release: {file_list}")
+            
+            # Extract to memory
+            csv_files = [f for f in file_list if f.endswith('.csv')]
+            if not csv_files:
+                st.error("❌ No CSV file found in the release")
+                return None, None
+                
+            # Read the first CSV file found
+            with zip_ref.open(csv_files[0]) as csv_file:
+                df = pd.read_csv(csv_file)
+        
+        st.success(f"✅ Successfully loaded dataset: {csv_files[0]}")
+        st.info(f"Dataset shape: {df.shape}")
+        
+        return process_data(df), "GitHub Release"
+        
+    except Exception as e:
+        st.error(f"❌ Failed to load dataset: {str(e)}")
+        
+        # Provide debugging information
+        st.info("**Troubleshooting steps:**")
+        st.info("1. Check if the GitHub release exists and is public")
+        st.info("2. Verify the URL is correct")
+        st.info("3. Ensure the zip file contains a CSV file")
+        
+        return None, None
+
+def process_data(df):
+    """Process the dataframe for the app"""
     
-    # Fallback to sample dataset
-    elif os.path.exists(sample_data_path):
-        try:
-            df = pd.read_csv(sample_data_path)
-            st.info("📊 Using sample dataset for demo")
-            dataset_info = "Sample Dataset"
-        except Exception as e:
-            st.error(f"Error loading sample dataset: {e}")
-            return None, None
-    
-    # Try to download from GitHub releases
+    # Handle date columns
+    date_columns = ['publish_time', 'date', 'publication_date', 'publish_date', 'time']
+    for col in date_columns:
+        if col in df.columns:
+            try:
+                df['publish_time'] = pd.to_datetime(df[col], errors='coerce')
+                df['publication_year'] = df['publish_time'].dt.year.fillna(2020).astype(int)
+                break
+            except:
+                continue
     else:
-        st.info("📥 Downloading dataset... This may take a moment.")
-        try:
-            # Replace with your actual GitHub repo URL
-            url = "https://github.com/kimenjuivy/CORD-19-DATA-ANALYSIS/releases/download/v1.0-data/dataset.zip"
-            
-            response = requests.get(url)
-            response.raise_for_status()
-            
-            # Create raw_data directory if it doesn't exist
-            os.makedirs('raw_data', exist_ok=True)
-            
-            # Extract zip file
-            with zipfile.ZipFile(BytesIO(response.content)) as zip_ref:
-                zip_ref.extractall('.')
-            
-            st.success("✅ Dataset downloaded successfully!")
-            df = pd.read_csv(full_data_path)
-            dataset_info = "Downloaded Dataset"
-            
-        except Exception as e:
-            st.error(f"Failed to download dataset: {e}")
-            st.info("Please ensure the dataset file exists locally.")
-            return None, None
+        # If no date column found, create a dummy one
+        df['publication_year'] = 2020
+        df['publish_time'] = pd.to_datetime('2020-01-01')
     
-    # Process data
-    df['publish_time'] = pd.to_datetime(df['publish_time'])
+    # Create title word count if title exists
+    if 'title' in df.columns:
+        df['title_word_count'] = df['title'].str.split().str.len().fillna(0)
+    else:
+        df['title_word_count'] = 0
     
-    return df, dataset_info
+    # Fill missing columns with defaults
+    default_values = {
+        'abstract': 'No Abstract Available',
+        'journal': 'Unknown Journal', 
+        'source': 'Unknown Source',
+        'authors': 'Unknown Authors'
+    }
+    
+    for col, default_val in default_values.items():
+        if col not in df.columns:
+            df[col] = default_val
+        else:
+            df[col] = df[col].fillna(default_val)
+    
+    return df
 
 # Header
 st.markdown('<h1 class="main-header">🔬 CORD-19 Research Data Explorer</h1>', unsafe_allow_html=True)
 st.markdown("### Explore COVID-19 research publications and discover insights from academic literature")
 
 # Load data
-data_result = load_data()
-if data_result[0] is None:
-    st.stop()
+with st.spinner("Loading dataset from GitHub..."):
+    data_result = load_data()
 
-df, dataset_info = data_result
+if data_result[0] is None:
+    st.error("""
+    **Application cannot start without data. Please check:**
+    
+    1. **GitHub Release**: Ensure v1.0-data release exists at https://github.com/kimenjuivy/CORD-19-DATA-ANALYSIS/releases
+    2. **File Content**: The release should contain dataset.zip with a CSV file inside
+    3. **Permissions**: The release should be publicly accessible
+    """)
+    
+    # Add manual upload as fallback
+    st.markdown("---")
+    st.subheader("🔄 Alternative: Upload Dataset")
+    uploaded_file = st.file_uploader("Upload your dataset file (CSV or ZIP)", type=['csv', 'zip'])
+    
+    if uploaded_file is not None:
+        try:
+            if uploaded_file.name.endswith('.csv'):
+                df = pd.read_csv(uploaded_file)
+            elif uploaded_file.name.endswith('.zip'):
+                with zipfile.ZipFile(uploaded_file) as zip_ref:
+                    csv_files = [f for f in zip_ref.namelist() if f.endswith('.csv')]
+                    if csv_files:
+                        with zip_ref.open(csv_files[0]) as f:
+                            df = pd.read_csv(f)
+                    else:
+                        st.error("No CSV file found in ZIP")
+                        st.stop()
+            
+            df = process_data(df)
+            dataset_info = "Uploaded File"
+            st.success("✅ Using uploaded file!")
+        except Exception as e:
+            st.error(f"Error processing uploaded file: {e}")
+            st.stop()
+    else:
+        st.stop()
+
+else:
+    df, dataset_info = data_result
 
 # Sidebar
 st.sidebar.header("🎛️ Controls")
