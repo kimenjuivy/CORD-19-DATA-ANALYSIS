@@ -1,12 +1,27 @@
-# Data files
-*.csv
-*.json
-*.xlsx
-*.xls
+# ===============================
+# DATA FILES
+# ===============================
+
+# Ignore raw or large datasets
 raw_data/
 data/
+*.zip
+*.tar.gz
+*.7z
+*.gz
+*.bz2
+*.hdf5
+*.parquet
+*.feather
+*.pkl
 
-# Python
+# Allow small sample/demo datasets for reproducibility
+!raw_data/*sample*.csv
+!data/*sample*.csv
+
+# ===============================
+# PYTHON
+# ===============================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -29,10 +44,14 @@ wheels/
 *.egg
 MANIFEST
 
-# Jupyter Notebook
+# ===============================
+# NOTEBOOKS
+# ===============================
 .ipynb_checkpoints
 
-# Environment variables
+# ===============================
+# ENVIRONMENTS
+# ===============================
 .env
 .venv
 env/
@@ -40,15 +59,20 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+*.sqlite3
 
-# IDE
+# ===============================
+# IDEs & EDITORS
+# ===============================
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# OS
+# ===============================
+# OPERATING SYSTEM
+# ===============================
 .DS_Store
 .DS_Store?
 ._*
@@ -57,10 +81,16 @@ venv.bak/
 ehthumbs.db
 Thumbs.db
 
-# Streamlit
+# ===============================
+# STREAMLIT / APP
+# ===============================
 .streamlit/
 
-# Large files
-*.zip
-*.tar.gz
-*.7z
+# ===============================
+# LOGS & TEMP
+# ===============================
+*.log
+*.tmp
+*.bak
+*.out
+*.lock
