@@ -46,7 +46,7 @@ st.markdown("""
 def load_data():
     """Load data from GitHub Releases with multiple fallback options"""
     
-    st.info("🔬 Loading CORD-19 research data from GitHub Releases...")
+    st.info("🔬 Loading CORD-19 research data...")
     
     # Try GitHub Releases first
     release_data = load_from_github_releases()
@@ -112,7 +112,8 @@ def load_from_github_repo():
                 if len(df) > 0:
                     st.success(f"✅ Successfully loaded {len(df):,} records from {path}")
                     return process_data(df)
-            except:
+            except Exception as path_error:
+                st.info(f"Path {path} not found: {str(path_error)}")
                 continue
         return None
     except Exception as e:
@@ -184,10 +185,7 @@ def generate_authors():
     authors = []
     
     for i in range(num_authors):
-        if i == 0:
-            authors.append(f"{np.random.choice(last_names)} {np.random.choice(first_initials)}")
-        else:
-            authors.append(f"{np.random.choice(last_names)} {np.random.choice(first_initials)}")
+        authors.append(f"{np.random.choice(last_names)} {np.random.choice(first_initials)}")
     
     return "; ".join(authors)
 
@@ -205,76 +203,108 @@ def generate_abstract(diseases, research_types):
     return np.random.choice(templates)
 
 def process_data(df):
-    """Enhanced data processing with more features"""
+    """Enhanced data processing with more robust error handling"""
+    if df is None or df.empty:
+        raise ValueError("DataFrame is None or empty")
+    
     df_processed = df.copy()
     
-    # Date processing
-    if 'publish_time' in df_processed.columns:
-        df_processed['publish_time'] = pd.to_datetime(df_processed['publish_time'], errors='coerce')
-        df_processed['publication_year'] = df_processed['publish_time'].dt.year.fillna(2020).astype(int)
-        df_processed['publication_month'] = df_processed['publish_time'].dt.month.fillna(1)
-        df_processed['publication_quarter'] = df_processed['publish_time'].dt.quarter.fillna(1)
-    else:
-        df_processed['publication_year'] = 2020
-        df_processed['publish_time'] = pd.to_datetime('2020-01-01')
-    
-    # Text analysis features
-    if 'title' in df_processed.columns:
-        df_processed['title_word_count'] = df_processed['title'].astype(str).str.split().str.len().fillna(0)
-        df_processed['title_length'] = df_processed['title'].astype(str).str.len().fillna(0)
-    
-    if 'abstract' in df_processed.columns:
-        df_processed['abstract_word_count'] = df_processed['abstract'].astype(str).str.split().str.len().fillna(0)
-        df_processed['abstract_length'] = df_processed['abstract'].astype(str).str.len().fillna(0)
-        df_processed['has_abstract'] = (df_processed['abstract'].astype(str).str.len() > 20) & \
-                                      (df_processed['abstract'] != 'No Abstract Available')
-    
-    # Author analysis
-    if 'authors' in df_processed.columns:
-        df_processed['author_count'] = df_processed['authors'].astype(str).str.split(';').str.len().fillna(1)
-        df_processed['has_multiple_authors'] = df_processed['author_count'] > 1
-    
-    # Impact metrics
-    if 'citation_count' not in df_processed.columns:
-        df_processed['citation_count'] = np.random.poisson(10, len(df_processed))
-    
-    df_processed['citation_category'] = pd.cut(
-        df_processed['citation_count'],
-        bins=[-1, 0, 5, 20, 100, float('inf')],
-        labels=['None', 'Low', 'Medium', 'High', 'Very High']
-    )
-    
-    # Fill missing values
-    required_columns = {
-        'abstract': 'No Abstract Available',
-        'journal': 'Unknown Journal', 
-        'source': 'Unknown Source',
-        'authors': 'Unknown Authors',
-        'country': 'Unknown Country',
-        'study_type': 'Unknown Type'
-    }
-    
-    for col, default_value in required_columns.items():
-        if col not in df_processed.columns:
-            df_processed[col] = default_value
+    try:
+        # Date processing with robust error handling
+        if 'publish_time' in df_processed.columns:
+            df_processed['publish_time'] = pd.to_datetime(df_processed['publish_time'], errors='coerce')
+            df_processed['publication_year'] = df_processed['publish_time'].dt.year
+            df_processed['publication_month'] = df_processed['publish_time'].dt.month
+            df_processed['publication_quarter'] = df_processed['publish_time'].dt.quarter
+            
+            # Fill missing years with 2020
+            df_processed['publication_year'] = df_processed['publication_year'].fillna(2020).astype(int)
+            df_processed['publication_month'] = df_processed['publication_month'].fillna(1).astype(int)
+            df_processed['publication_quarter'] = df_processed['publication_quarter'].fillna(1).astype(int)
         else:
-            df_processed[col] = df_processed[col].fillna(default_value)
+            df_processed['publication_year'] = 2020
+            df_processed['publication_month'] = 1
+            df_processed['publication_quarter'] = 1
+            df_processed['publish_time'] = pd.to_datetime('2020-01-01')
+        
+        # Text analysis features with safe processing
+        if 'title' in df_processed.columns:
+            df_processed['title'] = df_processed['title'].astype(str).fillna('Unknown Title')
+            df_processed['title_word_count'] = df_processed['title'].str.split().str.len().fillna(0)
+            df_processed['title_length'] = df_processed['title'].str.len().fillna(0)
+        else:
+            df_processed['title'] = 'Unknown Title'
+            df_processed['title_word_count'] = 0
+            df_processed['title_length'] = 0
+        
+        if 'abstract' in df_processed.columns:
+            df_processed['abstract'] = df_processed['abstract'].astype(str).fillna('No Abstract Available')
+            df_processed['abstract_word_count'] = df_processed['abstract'].str.split().str.len().fillna(0)
+            df_processed['abstract_length'] = df_processed['abstract'].str.len().fillna(0)
+            df_processed['has_abstract'] = (
+                (df_processed['abstract'].str.len() > 20) & 
+                (df_processed['abstract'] != 'No Abstract Available') &
+                (df_processed['abstract'] != 'nan')
+            )
+        else:
+            df_processed['abstract'] = 'No Abstract Available'
+            df_processed['abstract_word_count'] = 0
+            df_processed['abstract_length'] = 0
+            df_processed['has_abstract'] = False
+        
+        # Author analysis with safe processing
+        if 'authors' in df_processed.columns:
+            df_processed['authors'] = df_processed['authors'].astype(str).fillna('Unknown Authors')
+            df_processed['author_count'] = df_processed['authors'].str.split(';').str.len().fillna(1)
+        else:
+            df_processed['authors'] = 'Unknown Authors'
+            df_processed['author_count'] = 1
+        
+        df_processed['has_multiple_authors'] = df_processed['author_count'] > 1
+        
+        # Impact metrics with safe processing
+        if 'citation_count' not in df_processed.columns:
+            df_processed['citation_count'] = np.random.poisson(10, len(df_processed))
+        else:
+            df_processed['citation_count'] = pd.to_numeric(df_processed['citation_count'], errors='coerce').fillna(0)
+        
+        df_processed['citation_category'] = pd.cut(
+            df_processed['citation_count'],
+            bins=[-1, 0, 5, 20, 100, float('inf')],
+            labels=['None', 'Low', 'Medium', 'High', 'Very High']
+        )
+        
+        # Fill missing values safely
+        required_columns = {
+            'journal': 'Unknown Journal', 
+            'source': 'Unknown Source',
+            'country': 'Unknown Country',
+            'study_type': 'Unknown Type'
+        }
+        
+        for col, default_value in required_columns.items():
+            if col not in df_processed.columns:
+                df_processed[col] = default_value
+            else:
+                df_processed[col] = df_processed[col].fillna(default_value).astype(str)
+        
+        # Ensure no empty dataframe
+        if df_processed.empty:
+            raise ValueError("Processed DataFrame is empty")
+        
+        return df_processed
     
-    return df_processed
+    except Exception as e:
+        st.error(f"Error in process_data: {str(e)}")
+        raise e
 
-def calculate_text_sentiment(text):
-    """Calculate sentiment of text using simple rule-based approach"""
-    if pd.isna(text) or text == 'No Abstract Available':
-        return 0
-    
-    positive_words = ['effective', 'successful', 'improved', 'beneficial', 'promising', 'significant']
-    negative_words = ['limitation', 'challenge', 'difficult', 'risk', 'adverse', 'fatal']
-    
-    text_lower = text.lower()
-    positive_score = sum(1 for word in positive_words if word in text_lower)
-    negative_score = sum(1 for word in negative_words if word in text_lower)
-    
-    return positive_score - negative_score
+def safe_plot_wrapper(plot_func, error_message="Error creating visualization"):
+    """Wrapper for safe plotting with error handling"""
+    try:
+        return plot_func()
+    except Exception as e:
+        st.error(f"{error_message}: {str(e)}")
+        return None
 
 # Main app
 def main():
@@ -282,20 +312,36 @@ def main():
         st.markdown('<h1 class="main-header">🔬 CORD-19 Comprehensive Research Explorer</h1>', unsafe_allow_html=True)
         st.markdown("### Advanced Analytics for COVID-19 Research Publications")
         
-        # Load data
-        with st.spinner("Loading comprehensive research data..."):
-            data_result = load_data()
-        
-        if data_result[0] is None:
-            st.error("❌ Failed to load data. Please check your data sources.")
+        # Load data with better error handling
+        try:
+            with st.spinner("Loading comprehensive research data..."):
+                data_result = load_data()
+            
+            if data_result is None or data_result[0] is None:
+                st.error("❌ Failed to load data. Please check your data sources.")
+                st.info("This might be due to network issues or unavailable data sources. Try refreshing the page.")
+                return
+            
+            df, dataset_info = data_result
+            
+            # Validate dataframe
+            if df is None or df.empty:
+                st.error("❌ Loaded data is empty or invalid.")
+                return
+            
+            st.success(f"✅ Loaded {len(df):,} research papers from {dataset_info}")
+            
+        except Exception as load_error:
+            st.error(f"❌ Critical error loading data: {str(load_error)}")
+            st.info("Please try refreshing the page or check your internet connection.")
             return
         
-        df, dataset_info = data_result
-        st.success(f"✅ Loaded {len(df):,} research papers from {dataset_info}")
-        
         # Debug info
-        st.sidebar.info(f"**Data Shape:** {df.shape}")
-        st.sidebar.info(f"**Date Range:** {df['publish_time'].min()} to {df['publish_time'].max()}")
+        with st.expander("📊 Data Debug Information"):
+            st.write(f"**Data Shape:** {df.shape}")
+            st.write(f"**Columns:** {list(df.columns)}")
+            st.write(f"**Date Range:** {df['publish_time'].min()} to {df['publish_time'].max()}")
+            st.write(f"**Memory Usage:** {df.memory_usage(deep=True).sum() / 1024 / 1024:.2f} MB")
         
         # Manual upload option
         with st.expander("📁 Upload Custom Dataset"):
@@ -303,76 +349,115 @@ def main():
             if uploaded_file is not None:
                 try:
                     custom_df = pd.read_csv(uploaded_file)
-                    df = process_data(custom_df)
-                    dataset_info = "Uploaded File"
-                    st.success("✅ Using uploaded file!")
+                    if not custom_df.empty:
+                        df = process_data(custom_df)
+                        dataset_info = "Uploaded File"
+                        st.success("✅ Using uploaded file!")
+                    else:
+                        st.error("Uploaded file is empty")
                 except Exception as e:
                     st.error(f"Error reading uploaded file: {e}")
         
-        # Sidebar controls
+        # Sidebar controls with validation
         st.sidebar.header("🎛️ Advanced Controls")
         st.sidebar.info(f"**Source:** {dataset_info}")
         st.sidebar.info(f"**Total Papers:** {len(df):,}")
         
-        # Enhanced filters
-        years = sorted(df['publication_year'].unique())
-        year_range = st.sidebar.slider(
-            "Publication Year Range",
-            min_value=int(min(years)),
-            max_value=int(max(years)),
-            value=(int(min(years)), int(max(years)))
-        )
+        # Enhanced filters with validation
+        try:
+            years = sorted(df['publication_year'].dropna().unique())
+            if len(years) == 0:
+                years = [2020]
+            
+            year_range = st.sidebar.slider(
+                "Publication Year Range",
+                min_value=int(min(years)),
+                max_value=int(max(years)),
+                value=(int(min(years)), int(max(years)))
+            )
+            
+            # Apply year filter safely
+            filtered_df = df[
+                (df['publication_year'] >= year_range[0]) & 
+                (df['publication_year'] <= year_range[1])
+            ]
+            
+            if filtered_df.empty:
+                st.warning("⚠️ Year filter resulted in no data. Resetting to full dataset.")
+                filtered_df = df.copy()
+            
+        except Exception as filter_error:
+            st.warning(f"Error applying year filter: {str(filter_error)}. Using full dataset.")
+            filtered_df = df.copy()
         
-        filtered_df = df[
-            (df['publication_year'] >= year_range[0]) & 
-            (df['publication_year'] <= year_range[1])
-        ]
-        
-        # Additional filters
+        # Additional filters with validation
         col1, col2, col3 = st.sidebar.columns(3)
         
         with col1:
-            min_citations = st.number_input("Min Citations", value=0)
-            filtered_df = filtered_df[filtered_df['citation_count'] >= min_citations]
+            try:
+                min_citations = st.number_input("Min Citations", value=0, min_value=0)
+                temp_df = filtered_df[filtered_df['citation_count'] >= min_citations]
+                if not temp_df.empty:
+                    filtered_df = temp_df
+            except Exception:
+                st.sidebar.warning("Citation filter error")
         
         with col2:
-            min_authors = st.number_input("Min Authors", value=1, min_value=1)
-            filtered_df = filtered_df[filtered_df['author_count'] >= min_authors]
+            try:
+                min_authors = st.number_input("Min Authors", value=1, min_value=1)
+                temp_df = filtered_df[filtered_df['author_count'] >= min_authors]
+                if not temp_df.empty:
+                    filtered_df = temp_df
+            except Exception:
+                st.sidebar.warning("Author filter error")
         
         with col3:
-            with_abstract = st.checkbox("With Abstract", value=True)
-            if with_abstract:
-                filtered_df = filtered_df[filtered_df['has_abstract']]
+            try:
+                with_abstract = st.checkbox("With Abstract", value=False)
+                if with_abstract:
+                    temp_df = filtered_df[filtered_df['has_abstract']]
+                    if not temp_df.empty:
+                        filtered_df = temp_df
+            except Exception:
+                st.sidebar.warning("Abstract filter error")
         
-        # Journal filter
-        journals = filtered_df['journal'].value_counts().index.tolist()
-        selected_journals = st.sidebar.multiselect("Filter Journals", journals, default=[])
-        if selected_journals:
-            filtered_df = filtered_df[filtered_df['journal'].isin(selected_journals)]
+        # Journal filter with validation
+        try:
+            journals = filtered_df['journal'].value_counts().index.tolist()[:20]  # Limit to top 20
+            selected_journals = st.sidebar.multiselect("Filter Journals (Top 20)", journals, default=[])
+            if selected_journals:
+                temp_df = filtered_df[filtered_df['journal'].isin(selected_journals)]
+                if not temp_df.empty:
+                    filtered_df = temp_df
+        except Exception:
+            st.sidebar.warning("Journal filter error")
         
-        # Check if filtered data is empty
+        # Final validation
         if filtered_df.empty:
-            st.warning("⚠️ No data matches your filters. Please adjust your criteria.")
-            return
+            st.warning("⚠️ No data matches your filters. Showing all data.")
+            filtered_df = df.copy()
         
         # Enhanced metrics
         st.subheader("📊 Research Overview Metrics")
         col1, col2, col3, col4, col5, col6 = st.columns(6)
         
-        with col1:
-            st.metric("Total Papers", f"{len(filtered_df):,}")
-        with col2:
-            st.metric("Unique Journals", f"{filtered_df['journal'].nunique():,}")
-        with col3:
-            avg_citations = filtered_df['citation_count'].mean()
-            st.metric("Avg Citations", f"{avg_citations:.1f}")
-        with col4:
-            st.metric("Avg Authors", f"{filtered_df['author_count'].mean():.1f}")
-        with col5:
-            papers_with_abstracts = filtered_df['has_abstract'].sum()
-            st.metric("With Abstracts", f"{papers_with_abstracts:,}")
-        with col6:
-            st.metric("Time Span", f"{year_range[0]}-{year_range[1]}")
+        try:
+            with col1:
+                st.metric("Total Papers", f"{len(filtered_df):,}")
+            with col2:
+                st.metric("Unique Journals", f"{filtered_df['journal'].nunique():,}")
+            with col3:
+                avg_citations = filtered_df['citation_count'].mean()
+                st.metric("Avg Citations", f"{avg_citations:.1f}")
+            with col4:
+                st.metric("Avg Authors", f"{filtered_df['author_count'].mean():.1f}")
+            with col5:
+                papers_with_abstracts = filtered_df['has_abstract'].sum()
+                st.metric("With Abstracts", f"{papers_with_abstracts:,}")
+            with col6:
+                st.metric("Time Span", f"{year_range[0]}-{year_range[1]}")
+        except Exception as e:
+            st.warning(f"Error displaying metrics: {str(e)}")
         
         # Main tabs with comprehensive analysis
         tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
@@ -384,8 +469,7 @@ def main():
             col1, col2 = st.columns(2)
             
             with col1:
-                try:
-                    # Yearly publications with citations
+                def create_yearly_trends():
                     yearly_data = filtered_df.groupby('publication_year').agg({
                         'cord_uid': 'count',
                         'citation_count': 'mean'
@@ -414,190 +498,334 @@ def main():
                         height=400
                     )
                     st.plotly_chart(fig, use_container_width=True)
-                except Exception as e:
-                    st.error(f"Error creating yearly trends: {str(e)}")
+                
+                safe_plot_wrapper(create_yearly_trends, "Error creating yearly trends")
             
             with col2:
-                try:
-                    # Monthly trends - FIXED VERSION
+                def create_monthly_trends():
                     if 'publish_time' in filtered_df.columns and not filtered_df.empty:
                         monthly_data = filtered_df.copy()
-                        monthly_data['year'] = monthly_data['publish_time'].dt.year
-                        monthly_data['month'] = monthly_data['publish_time'].dt.month
-                        monthly_data['date'] = pd.to_datetime(
-                            monthly_data['year'].astype(str) + '-' + 
-                            monthly_data['month'].astype(str) + '-01'
-                        )
-                        monthly_trends = monthly_data.groupby('date').size().reset_index(name='count')
-                        
-                        fig = px.line(monthly_trends, x='date', y='count', 
-                                     title='Monthly Publication Trends',
-                                     height=400)
-                        st.plotly_chart(fig, use_container_width=True)
+                        monthly_data = monthly_data.dropna(subset=['publish_time'])
+                        if not monthly_data.empty:
+                            monthly_data['date'] = monthly_data['publish_time'].dt.to_period('M')
+                            monthly_trends = monthly_data.groupby('date').size().reset_index(name='count')
+                            monthly_trends['date'] = monthly_trends['date'].dt.start_time
+                            
+                            fig = px.line(monthly_trends, x='date', y='count', 
+                                         title='Monthly Publication Trends',
+                                         height=400)
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            st.info("No valid date data for monthly trends")
                     else:
                         st.info("No date data available for monthly trends")
-                except Exception as e:
-                    st.error(f"Error creating monthly trends: {str(e)}")
+                
+                safe_plot_wrapper(create_monthly_trends, "Error creating monthly trends")
         
         with tab2:
             st.subheader("Journal Analysis")
             col1, col2 = st.columns(2)
             
             with col1:
-                try:
-                    # Top journals by publication count
+                def create_journal_bar():
                     top_journals = filtered_df['journal'].value_counts().head(15)
-                    fig = px.bar(top_journals, x=top_journals.values, y=top_journals.index,
-                                orientation='h', title='Top 15 Journals by Publication Count',
-                                height=500)
-                    st.plotly_chart(fig, use_container_width=True)
-                except Exception as e:
-                    st.error(f"Error creating journal bar chart: {str(e)}")
+                    if not top_journals.empty:
+                        fig = px.bar(top_journals, x=top_journals.values, y=top_journals.index,
+                                    orientation='h', title='Top 15 Journals by Publication Count',
+                                    height=500)
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No journal data available")
+                
+                safe_plot_wrapper(create_journal_bar, "Error creating journal bar chart")
             
             with col2:
-                try:
-                    # Journal impact (citations)
+                def create_journal_scatter():
                     journal_impact = filtered_df.groupby('journal').agg({
                         'citation_count': 'mean',
                         'cord_uid': 'count'
-                    }).nlargest(15, 'cord_uid')
+                    }).reset_index()
+                    journal_impact = journal_impact.nlargest(15, 'cord_uid')
                     
-                    fig = px.scatter(journal_impact, x='cord_uid', y='citation_count',
-                                   size='citation_count', hover_name=journal_impact.index,
-                                   title='Journal Impact: Publications vs Citations',
-                                   height=500)
-                    st.plotly_chart(fig, use_container_width=True)
-                except Exception as e:
-                    st.error(f"Error creating journal scatter plot: {str(e)}")
+                    if not journal_impact.empty:
+                        fig = px.scatter(journal_impact, x='cord_uid', y='citation_count',
+                                       size='citation_count', hover_name='journal',
+                                       title='Journal Impact: Publications vs Citations',
+                                       height=500)
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No journal impact data available")
+                
+                safe_plot_wrapper(create_journal_scatter, "Error creating journal scatter plot")
         
         with tab3:
             st.subheader("Author and Collaboration Analysis")
             col1, col2 = st.columns(2)
             
             with col1:
-                try:
-                    # Author count distribution
-                    fig = px.histogram(filtered_df, x='author_count', 
-                                     title='Distribution of Authors per Paper',
-                                     nbins=20, height=400)
-                    st.plotly_chart(fig, use_container_width=True)
-                except Exception as e:
-                    st.error(f"Error creating author histogram: {str(e)}")
+                def create_author_histogram():
+                    if 'author_count' in filtered_df.columns:
+                        fig = px.histogram(filtered_df, x='author_count', 
+                                         title='Distribution of Authors per Paper',
+                                         nbins=20, height=400)
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No author count data available")
+                
+                safe_plot_wrapper(create_author_histogram, "Error creating author histogram")
             
             with col2:
-                try:
-                    # Collaboration trends over time
+                def create_collaboration_trends():
                     collaboration_trends = filtered_df.groupby('publication_year').agg({
                         'author_count': 'mean',
                         'has_multiple_authors': 'mean'
                     }).reset_index()
                     
-                    fig = px.line(collaboration_trends, x='publication_year', 
-                                 y=['author_count', 'has_multiple_authors'],
-                                 title='Collaboration Trends Over Time',
-                                 height=400)
-                    st.plotly_chart(fig, use_container_width=True)
-                except Exception as e:
-                    st.error(f"Error creating collaboration trends: {str(e)}")
+                    if not collaboration_trends.empty:
+                        fig = go.Figure()
+                        fig.add_trace(go.Scatter(
+                            x=collaboration_trends['publication_year'],
+                            y=collaboration_trends['author_count'],
+                            name='Avg Authors',
+                            line=dict(color='blue')
+                        ))
+                        fig.add_trace(go.Scatter(
+                            x=collaboration_trends['publication_year'],
+                            y=collaboration_trends['has_multiple_authors'],
+                            name='Multi-author Rate',
+                            yaxis='y2',
+                            line=dict(color='red')
+                        ))
+                        
+                        fig.update_layout(
+                            title='Collaboration Trends Over Time',
+                            xaxis_title='Year',
+                            yaxis_title='Average Authors',
+                            yaxis2=dict(title='Multi-author Rate', overlaying='y', side='right'),
+                            height=400
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No collaboration data available")
+                
+                safe_plot_wrapper(create_collaboration_trends, "Error creating collaboration trends")
         
         with tab4:
             st.subheader("Geographic and Source Analysis")
             col1, col2 = st.columns(2)
             
             with col1:
-                try:
-                    # Country distribution
+                def create_country_pie():
                     country_data = filtered_df['country'].value_counts().head(15)
-                    fig = px.pie(country_data, values=country_data.values, names=country_data.index,
-                                title='Top 15 Countries by Publication Count',
-                                height=500)
-                    st.plotly_chart(fig, use_container_width=True)
-                except Exception as e:
-                    st.error(f"Error creating country pie chart: {str(e)}")
+                    if not country_data.empty:
+                        fig = px.pie(values=country_data.values, names=country_data.index,
+                                    title='Top 15 Countries by Publication Count',
+                                    height=500)
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No country data available")
+                
+                safe_plot_wrapper(create_country_pie, "Error creating country pie chart")
             
             with col2:
-                try:
-                    # Source distribution over time
-                    source_trends = pd.crosstab(filtered_df['publication_year'], filtered_df['source'])
-                    fig = px.area(source_trends, title='Publication Sources Over Time',
-                                 height=500)
-                    st.plotly_chart(fig, use_container_width=True)
-                except Exception as e:
-                    st.error(f"Error creating source area chart: {str(e)}")
+                def create_source_trends():
+                    try:
+                        source_trends = pd.crosstab(filtered_df['publication_year'], filtered_df['source'])
+                        if not source_trends.empty:
+                            fig = go.Figure()
+                            for col in source_trends.columns:
+                                fig.add_trace(go.Scatter(
+                                    x=source_trends.index,
+                                    y=source_trends[col],
+                                    mode='lines+markers',
+                                    name=col,
+                                    stackgroup='one'
+                                ))
+                            
+                            fig.update_layout(
+                                title='Publication Sources Over Time',
+                                height=500,
+                                xaxis_title='Year',
+                                yaxis_title='Number of Publications'
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            st.info("No source trend data available")
+                    except Exception as e:
+                        st.info(f"Source trends not available: {str(e)}")
+                
+                safe_plot_wrapper(create_source_trends, "Error creating source area chart")
         
         with tab5:
             st.subheader("Content Analysis")
             col1, col2 = st.columns(2)
             
             with col1:
-                try:
-                    # Word cloud of titles
-                    text = ' '.join(filtered_df['title'].dropna().astype(str))
-                    if text.strip():
-                        wordcloud = WordCloud(width=600, height=300, background_color='white').generate(text)
-                        fig, ax = plt.subplots(figsize=(10, 5))
-                        ax.imshow(wordcloud, interpolation='bilinear')
-                        ax.axis('off')
-                        ax.set_title('Common Words in Research Titles', fontsize=16)
-                        st.pyplot(fig)
-                    else:
-                        st.info("No text data available for word cloud")
-                except Exception as e:
-                    st.error(f"Error creating word cloud: {str(e)}")
+                def create_wordcloud():
+                    try:
+                        text_data = filtered_df['title'].dropna().astype(str)
+                        text = ' '.join(text_data.head(1000))  # Limit to first 1000 for performance
+                        if text.strip() and len(text) > 50:
+                            wordcloud = WordCloud(
+                                width=600, 
+                                height=300, 
+                                background_color='white',
+                                max_words=100
+                            ).generate(text)
+                            
+                            fig, ax = plt.subplots(figsize=(10, 5))
+                            ax.imshow(wordcloud, interpolation='bilinear')
+                            ax.axis('off')
+                            ax.set_title('Common Words in Research Titles', fontsize=16)
+                            st.pyplot(fig)
+                            plt.close()
+                        else:
+                            st.info("Insufficient text data for word cloud")
+                    except Exception as e:
+                        st.info(f"Word cloud not available: {str(e)}")
+                
+                safe_plot_wrapper(create_wordcloud, "Error creating word cloud")
             
             with col2:
-                try:
-                    # Abstract length vs citations
-                    if not filtered_df.empty and 'abstract_word_count' in filtered_df.columns:
-                        fig = px.scatter(filtered_df, x='abstract_word_count', y='citation_count',
-                                       trendline='lowess', title='Abstract Length vs Citation Impact',
-                                       height=400)
-                        st.plotly_chart(fig, use_container_width=True)
+                def create_abstract_scatter():
+                    if ('abstract_word_count' in filtered_df.columns and 
+                        'citation_count' in filtered_df.columns):
+                        plot_data = filtered_df[
+                            (filtered_df['abstract_word_count'] > 0) & 
+                            (filtered_df['citation_count'] >= 0)
+                        ].copy()
+                        
+                        if not plot_data.empty and len(plot_data) > 10:
+                            fig = px.scatter(plot_data.head(1000), 
+                                           x='abstract_word_count', y='citation_count',
+                                           trendline='lowess', 
+                                           title='Abstract Length vs Citation Impact',
+                                           height=400)
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            st.info("Insufficient data for abstract analysis")
                     else:
                         st.info("No abstract data available for analysis")
-                except Exception as e:
-                    st.error(f"Error creating abstract scatter plot: {str(e)}")
+                
+                safe_plot_wrapper(create_abstract_scatter, "Error creating abstract scatter plot")
             
-            try:
-                # Study type analysis
-                study_type_data = filtered_df['study_type'].value_counts()
-                fig = px.bar(study_type_data, x=study_type_data.index, y=study_type_data.values,
-                            title='Distribution of Research Types',
-                            height=400)
-                st.plotly_chart(fig, use_container_width=True)
-            except Exception as e:
-                st.error(f"Error creating study type bar chart: {str(e)}")
+            def create_study_type_bar():
+                if 'study_type' in filtered_df.columns:
+                    study_type_data = filtered_df['study_type'].value_counts()
+                    if not study_type_data.empty:
+                        fig = px.bar(x=study_type_data.index, y=study_type_data.values,
+                                    title='Distribution of Research Types',
+                                    height=400)
+                        fig.update_xaxis(tickangle=45)
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No study type data available")
+                else:
+                    st.info("Study type information not available")
+            
+            safe_plot_wrapper(create_study_type_bar, "Error creating study type bar chart")
         
         with tab6:
             st.subheader("Raw Data and Export")
             
-            # Data summary
+            # Data summary with error handling
             col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Filtered Papers", f"{len(filtered_df):,}")
-            with col2:
-                st.metric("Columns", f"{len(filtered_df.columns):,}")
-            with col3:
-                st.metric("Data Size", f"{filtered_df.memory_usage(deep=True).sum() / 1024 / 1024:.1f} MB")
+            try:
+                with col1:
+                    st.metric("Filtered Papers", f"{len(filtered_df):,}")
+                with col2:
+                    st.metric("Columns", f"{len(filtered_df.columns):,}")
+                with col3:
+                    memory_mb = filtered_df.memory_usage(deep=True).sum() / 1024 / 1024
+                    st.metric("Data Size", f"{memory_mb:.1f} MB")
+            except Exception as e:
+                st.warning(f"Error displaying data metrics: {str(e)}")
             
-            # Data preview
-            st.dataframe(filtered_df.head(100), use_container_width=True)
+            # Data preview with pagination
+            st.subheader("Data Preview")
+            try:
+                # Show column info
+                with st.expander("📋 Column Information"):
+                    col_info = pd.DataFrame({
+                        'Column': filtered_df.columns,
+                        'Type': [str(dtype) for dtype in filtered_df.dtypes],
+                        'Non-Null Count': [filtered_df[col].count() for col in filtered_df.columns],
+                        'Null Count': [filtered_df[col].isnull().sum() for col in filtered_df.columns]
+                    })
+                    st.dataframe(col_info, use_container_width=True)
+                
+                # Paginated data view
+                rows_per_page = st.selectbox("Rows per page", [10, 25, 50, 100], index=2)
+                total_pages = (len(filtered_df) - 1) // rows_per_page + 1
+                
+                if total_pages > 1:
+                    page = st.selectbox(f"Page (1 to {total_pages})", range(1, total_pages + 1))
+                    start_idx = (page - 1) * rows_per_page
+                    end_idx = start_idx + rows_per_page
+                    display_df = filtered_df.iloc[start_idx:end_idx]
+                else:
+                    display_df = filtered_df.head(rows_per_page)
+                
+                st.dataframe(display_df, use_container_width=True, height=400)
+                
+            except Exception as e:
+                st.error(f"Error displaying data preview: {str(e)}")
+                st.info("Showing basic data info instead")
+                st.write(f"Data shape: {filtered_df.shape}")
+                st.write(f"Columns: {list(filtered_df.columns)}")
             
-            # Export options
-            col1, col2 = st.columns(2)
-            with col1:
-                csv = filtered_df.to_csv(index=False)
-                st.download_button(
-                    label="📥 Download Filtered Data (CSV)",
-                    data=csv,
-                    file_name=f'cord19_analysis_{datetime.now().strftime("%Y%m%d_%H%M")}.csv',
-                    mime='text/csv'
-                )
+            # Export options with error handling
+            st.subheader("Export Options")
+            col1, col2, col3 = st.columns(3)
             
-            with col2:
-                # Summary statistics
-                with st.expander("📊 Dataset Summary Statistics"):
-                    st.write(filtered_df.describe())
+            try:
+                with col1:
+                    if st.button("📥 Prepare CSV Download"):
+                        csv = filtered_df.to_csv(index=False)
+                        st.download_button(
+                            label="📥 Download Filtered Data (CSV)",
+                            data=csv,
+                            file_name=f'cord19_analysis_{datetime.now().strftime("%Y%m%d_%H%M")}.csv',
+                            mime='text/csv'
+                        )
+                        st.success("✅ CSV ready for download!")
+                
+                with col2:
+                    if st.button("📊 Prepare Summary Stats"):
+                        try:
+                            summary_stats = filtered_df.describe(include='all').fillna('')
+                            summary_csv = summary_stats.to_csv()
+                            st.download_button(
+                                label="📊 Download Summary Statistics",
+                                data=summary_csv,
+                                file_name=f'cord19_summary_{datetime.now().strftime("%Y%m%d_%H%M")}.csv',
+                                mime='text/csv'
+                            )
+                            st.success("✅ Summary stats ready!")
+                        except Exception as e:
+                            st.warning(f"Could not generate summary stats: {str(e)}")
+                
+                with col3:
+                    if st.button("🔍 Show Data Info"):
+                        with st.expander("📊 Dataset Summary Statistics", expanded=True):
+                            try:
+                                numeric_cols = filtered_df.select_dtypes(include=[np.number]).columns
+                                if len(numeric_cols) > 0:
+                                    st.write("**Numeric Columns Summary:**")
+                                    st.dataframe(filtered_df[numeric_cols].describe(), use_container_width=True)
+                                
+                                categorical_cols = filtered_df.select_dtypes(include=['object']).columns
+                                if len(categorical_cols) > 0:
+                                    st.write("**Categorical Columns Summary:**")
+                                    for col in categorical_cols[:5]:  # Show first 5 categorical columns
+                                        st.write(f"**{col}:** {filtered_df[col].nunique()} unique values")
+                                        top_values = filtered_df[col].value_counts().head(3)
+                                        st.write(f"Top values: {dict(top_values)}")
+                            except Exception as e:
+                                st.warning(f"Error generating detailed statistics: {str(e)}")
+            
+            except Exception as e:
+                st.warning(f"Error in export section: {str(e)}")
         
         # Footer
         st.markdown("---")
@@ -606,10 +834,27 @@ def main():
         *Comprehensive analysis of COVID-19 research publications* • 
         Data updated automatically from multiple sources
         """)
+        
+        # Performance info
+        if st.sidebar.checkbox("Show Performance Info"):
+            st.sidebar.info(f"""
+            **Performance Metrics:**
+            - Records: {len(filtered_df):,}
+            - Filters Applied: {len(df) - len(filtered_df):,} records filtered
+            - Memory Usage: {filtered_df.memory_usage(deep=True).sum() / 1024 / 1024:.1f} MB
+            """)
     
     except Exception as e:
-        st.error(f"Application error: {str(e)}")
-        st.info("Please check the data format and try refreshing the app.")
+        st.error(f"❌ Critical application error: {str(e)}")
+        st.info("Please try the following:")
+        st.info("1. Refresh the page")
+        st.info("2. Check your internet connection")
+        st.info("3. Try uploading a custom CSV file")
+        
+        # Show error details for debugging
+        with st.expander("🔧 Error Details (for debugging)"):
+            import traceback
+            st.code(traceback.format_exc())
 
 if __name__ == "__main__":
     main()
