@@ -42,7 +42,7 @@ st.markdown("""
 
 @st.cache_data(ttl=3600)
 def load_data():
-    """Load data from GitHub release - PRODUCTION VERSION"""
+    """Load data from GitHub release - FIXED VERSION"""
     
     st.info("🌐 Loading dataset from GitHub release...")
     
@@ -56,34 +56,36 @@ def load_data():
         
         # Extract zip file
         with zipfile.ZipFile(BytesIO(response.content)) as zip_ref:
-            # Get list of files in zip
+            # Get list of all files in zip (including folder structure)
             file_list = zip_ref.namelist()
             st.info(f"Files in release: {file_list}")
             
-            # Extract to memory
+            # Look for the CSV file in the raw_data folder
             csv_files = [f for f in file_list if f.endswith('.csv')]
+            
             if not csv_files:
                 st.error("❌ No CSV file found in the release")
                 return None, None
-                
-            # Read the first CSV file found
-            with zip_ref.open(csv_files[0]) as csv_file:
+            
+            # Use the first CSV file found (should be raw_data/metadata_cleaned.csv)
+            csv_file_path = csv_files[0]
+            st.info(f"Loading CSV file: {csv_file_path}")
+            
+            # Read the CSV file from the zip
+            with zip_ref.open(csv_file_path) as csv_file:
                 df = pd.read_csv(csv_file)
         
-        st.success(f"✅ Successfully loaded dataset: {csv_files[0]}")
+        st.success(f"✅ Successfully loaded dataset: {csv_file_path}")
         st.info(f"Dataset shape: {df.shape}")
         
         return process_data(df), "GitHub Release"
         
+    except zipfile.BadZipFile:
+        st.error("❌ The downloaded file is not a valid zip file")
+        st.info("This usually means the GitHub release file is corrupted or not properly uploaded")
+        return None, None
     except Exception as e:
         st.error(f"❌ Failed to load dataset: {str(e)}")
-        
-        # Provide debugging information
-        st.info("**Troubleshooting steps:**")
-        st.info("1. Check if the GitHub release exists and is public")
-        st.info("2. Verify the URL is correct")
-        st.info("3. Ensure the zip file contains a CSV file")
-        
         return None, None
 
 def process_data(df):
@@ -140,8 +142,35 @@ if data_result[0] is None:
     
     1. **GitHub Release**: Ensure v1.0-data release exists at https://github.com/kimenjuivy/CORD-19-DATA-ANALYSIS/releases
     2. **File Content**: The release should contain dataset.zip with a CSV file inside
-    3. **Permissions**: The release should be publicly accessible
+    3. **File Size**: Check if the zip file is not empty or corrupted
     """)
+    
+    # Test the file directly
+    st.markdown("---")
+    st.subheader("🔧 Debug Information")
+    
+    try:
+        # Test if we can download the file
+        url = "https://github.com/kimenjuivy/CORD-19-DATA-ANALYSIS/releases/download/v1.0-data/dataset.zip"
+        response = requests.head(url)
+        st.info(f"HTTP Status: {response.status_code}")
+        st.info(f"Content-Type: {response.headers.get('content-type', 'Unknown')}")
+        st.info(f"Content-Length: {response.headers.get('content-length', 'Unknown')} bytes")
+        
+        if response.status_code == 200:
+            # Try to download a small portion to check if it's a valid zip
+            test_response = requests.get(url, stream=True)
+            first_chunk = next(test_response.iter_content(chunk_size=1024))
+            
+            # Check if it starts with PK (zip file signature)
+            if first_chunk.startswith(b'PK'):
+                st.success("✅ File is a valid zip file (starts with PK signature)")
+            else:
+                st.error("❌ File does not appear to be a valid zip file")
+                st.info(f"First bytes: {first_chunk[:10]}")
+                
+    except Exception as e:
+        st.error(f"Debug error: {e}")
     
     # Add manual upload as fallback
     st.markdown("---")
@@ -154,6 +183,7 @@ if data_result[0] is None:
                 df = pd.read_csv(uploaded_file)
             elif uploaded_file.name.endswith('.zip'):
                 with zipfile.ZipFile(uploaded_file) as zip_ref:
+                    # Look for CSV files in any folder structure
                     csv_files = [f for f in zip_ref.namelist() if f.endswith('.csv')]
                     if csv_files:
                         with zip_ref.open(csv_files[0]) as f:
@@ -174,6 +204,7 @@ if data_result[0] is None:
 else:
     df, dataset_info = data_result
 
+# Rest of your app code continues exactly as before...
 # Sidebar
 st.sidebar.header("🎛️ Controls")
 st.sidebar.info(f"**Dataset:** {dataset_info}")
